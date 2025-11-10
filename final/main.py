@@ -92,7 +92,7 @@ def find_roi_for_z(z: float, tol: float = None) -> Optional[List[Tuple[int, int]
 
     # Wider default tolerance: ±max(layer_height, 0.6 mm)
     if tol is None:
-        tol = max(LAYER_HEIGHT, 0.6)
+        tol = 0.2
 
     best = None
     best_delta = float("inf")
@@ -128,7 +128,7 @@ def monitor_roi(
 
     # ensure tolerance is applied here too
     if tol is None:
-        tol = max(LAYER_HEIGHT, 0.6)
+        tol = 0.2
 
     while True:
         if max_attempts is not None and attempts >= max_attempts:
@@ -234,4 +234,5 @@ ROI_MILESTONES: list[Tuple[float, list[Tuple[int, int]]]] = [
     (9.0,   [(373,460),(932,456),(931,422),(375,424),(371,460)]),
     (10.0,  [(373,460),(932,456),(931,418),(375,420),(371,460)]),
 ]
+
 
