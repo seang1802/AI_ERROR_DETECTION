@@ -138,12 +138,12 @@ def _hu_log(bin_img: np.ndarray) -> np.ndarray:
     Compute log-scaled Hu moments for a binary (0/255) image.
     Returns shape (7,) float64.
     """
-    # Ensure binary for moments
+    # Ensure binary
     _, bin_img = cv.threshold(bin_img, 0, 255, cv.THRESH_BINARY)
-    m = cv.moments(bin_img, binaryImage=True)
+
+    m  = cv.moments(bin_img, binaryImage=True)
     hu = cv.HuMoments(m).flatten()
 
-    # log transform with sign; add epsilon for stability
     eps = 1e-12
     hu_log = -np.sign(hu) * np.log10(np.abs(hu) + eps)
     return hu_log
@@ -154,18 +154,20 @@ def log_hu_moment_diff(
     real_img: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
     """
-    Compute log-Hu moments for both slicer and real images and return:
-      (hu_slicer, hu_real, abs_diff, L1_sum)
-
-    Both inputs should be single-channel uint8 images where foreground is 255.
+    Compute log-Hu for slicer and real, return:
+       hu_s (7,), hu_r (7,), diff (7,), L1_sum_of_diff
     """
+    # ensure grayscale
     if slicer_img.ndim == 3:
         slicer_img = cv.cvtColor(slicer_img, cv.COLOR_BGR2GRAY)
     if real_img.ndim == 3:
-        real_img = cv.cvtColor(real_img, cv.COLOR_BGR2GRAY)
+        real_img   = cv.cvtColor(real_img, cv.COLOR_BGR2GRAY)
 
     hu_s = _hu_log(slicer_img)
     hu_r = _hu_log(real_img)
+
     diff = np.abs(hu_s - hu_r)
-    l1 = float(np.sum(diff))
+    l1   = float(np.sum(diff))
+
     return hu_s, hu_r, diff, l1
+
