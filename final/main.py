@@ -1,3 +1,4 @@
+# main.py
 import QIDI_Z_AXIS
 import face_view
 import img_process
@@ -48,6 +49,7 @@ LAST_CAPTURED_LAYER: Optional[int] = None  # guard to avoid duplicate capture
 def capture_image(out_path: Path, width: int = 1280, height: int = 720, settle_s: float = 1.0) -> bool:
     """
     Capture a single image from the Raspberry Pi Camera using Picamera2.
+    Saves BGR .png/.jpg to out_path. Returns True on success.
     """
     picam = None
     try:
@@ -58,8 +60,7 @@ def capture_image(out_path: Path, width: int = 1280, height: int = 720, settle_s
             )
         )
         picam.start()
-
-        time.sleep(settle_s)
+        time.sleep(settle_s)  # allow AE/AG to settle
 
         frame_rgb = picam.capture_array()
         if frame_rgb is None:
@@ -83,13 +84,15 @@ def capture_image(out_path: Path, width: int = 1280, height: int = 720, settle_s
 
 
 # ------------------------------
-# ROI selection
+# ROI selection (with wide tolerance)
 # ------------------------------
 def find_roi_for_z(z: float, tol: float = None) -> Optional[List[Tuple[int, int]]]:
     if z is None:
         return None
+
+    # Wider default tolerance: ±max(layer_height, 0.6 mm)
     if tol is None:
-        tol = LAYER_HEIGHT / 2.0
+        tol = max(LAYER_HEIGHT, 0.6)
 
     best = None
     best_delta = float("inf")
@@ -105,7 +108,7 @@ def find_roi_for_z(z: float, tol: float = None) -> Optional[List[Tuple[int, int]
 
 
 # ------------------------------
-# Poller (core)
+# Poller (core): capture+ROI+render+HU once per match
 # ------------------------------
 def monitor_roi(
     poll_interval: float = 1.0,
@@ -123,6 +126,10 @@ def monitor_roi(
         out_dir = Path(".")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # ensure tolerance is applied here too
+    if tol is None:
+        tol = max(LAYER_HEIGHT, 0.6)
+
     while True:
         if max_attempts is not None and attempts >= max_attempts:
             return None
@@ -132,11 +139,13 @@ def monitor_roi(
         CURR_Z = z
         CURR_LAYER = layer_from_z(CURR_Z, LAYER_HEIGHT)
 
+        print(f"[DEBUG] Z={CURR_Z if CURR_Z is not None else 'None'}  tol=±{tol}  layer={CURR_LAYER}")
+
         roi = find_roi_for_z(CURR_Z, tol=tol)
         if roi is not None:
             CURRENT_ROI = roi
 
-            # Prevent capturing same layer twice
+            # Prevent capturing the same layer twice
             if CURR_LAYER is not None and LAST_CAPTURED_LAYER == CURR_LAYER:
                 time.sleep(poll_interval)
                 continue
@@ -144,62 +153,64 @@ def monitor_roi(
             LAST_CAPTURED_LAYER = CURR_LAYER
 
             # ----------------------
-            # 1) Process real image
+            # 1) Capture RAW and apply ROI HERE (no re-read of Z)
             # ----------------------
             if render_on_match and CURR_LAYER is not None:
                 try:
-                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    proc_path = out_dir / f"real_processed_L{CURR_LAYER}_{timestamp}.png"
+                    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    raw_path  = out_dir / f"real_raw_L{CURR_LAYER}_{ts}.png"
+                    proc_path = out_dir / f"real_processed_L{CURR_LAYER}_{ts}.png"
 
-                    info = img_process.process_current_real_image(
-                        out_path=proc_path,
-                        capture_fn=capture_image,
-                        get_z_fn=QIDI_Z_AXIS.get_z_height,
-                        roi_milestones=ROI_MILESTONES,
-                        layer_height=LAYER_HEIGHT,
-                        manual_thresh=180,
-                    )
-
-                    LAST_CAPTURE_INFO = {
-                        "path": info.get("saved_path"),
-                        "success": bool(info.get("captured")),
-                        "timestamp": timestamp,
-                        "layer": CURR_LAYER,
-                        "z": info.get("z"),
-                        "roi": info.get("roi_used"),
-                    }
-                except Exception:
+                    ok = capture_image(raw_path)
+                    if not ok:
+                        LAST_CAPTURE_INFO = {"path": None, "success": False}
+                    else:
+                        img_gray = cv.imread(str(raw_path), cv.IMREAD_GRAYSCALE)
+                        if img_gray is None:
+                            LAST_CAPTURE_INFO = {"path": None, "success": False}
+                        else:
+                            # Apply your ROI-processing deterministically
+                            processed = img_process.process_roi(img_gray, roi_pts=roi, manual_thresh=180)
+                            cv.imwrite(str(proc_path), processed)
+                            LAST_CAPTURE_INFO = {
+                                "path": str(proc_path),
+                                "success": True,
+                                "timestamp": ts,
+                                "layer": CURR_LAYER,
+                                "z": CURR_Z,
+                                "roi": roi,
+                            }
+                            print(f"[DEBUG] ROI applied? YES  points={len(roi)}  saved={proc_path}")
+                except Exception as e:
+                    print(f"[DEBUG] capture/process error: {e}")
                     LAST_CAPTURE_INFO = {"path": None, "success": False}
 
             # ----------------------
-            # 2) Render slicer view
+            # 2) Render slicer front-view once per layer
             # ----------------------
             if render_on_match and GCODE_PATH is not None and CURR_LAYER is not None:
                 try:
                     if LAST_RENDERED_LAYER != CURR_LAYER:
                         slicer_out = out_dir / f"front_view_layer_{CURR_LAYER}.png"
-                        _, info = face_view.render_front_view_by_layer(
-                            GCODE_PATH, slicer_out, CURR_LAYER
-                        )
+                        _, info = face_view.render_front_view_by_layer(GCODE_PATH, slicer_out, CURR_LAYER)
                         LAST_RENDERED_LAYER = CURR_LAYER
                         LAST_RENDER_INFO = info
-                except Exception:
-                    pass
+                        print(f"[DEBUG] Rendered slicer view: {slicer_out}")
+                except Exception as e:
+                    print(f"[DEBUG] render error: {e}")
 
             # ----------------------
-            # 3) Hu moment comparison
+            # 3) Hu-moment differential (if we have both images)
             # ----------------------
-            if LAST_CAPTURE_INFO and LAST_CAPTURE_INFO.get("success"):
+            if LAST_CAPTURE_INFO and LAST_CAPTURE_INFO.get("success") and CURR_LAYER is not None:
                 slicer_png = out_dir / f"front_view_layer_{CURR_LAYER}.png"
                 real_png = Path(LAST_CAPTURE_INFO["path"])
 
                 slicer_img = cv.imread(str(slicer_png), cv.IMREAD_GRAYSCALE)
-                real_img = cv.imread(str(real_png), cv.IMREAD_GRAYSCALE)
+                real_img   = cv.imread(str(real_png), cv.IMREAD_GRAYSCALE)
 
                 if slicer_img is not None and real_img is not None:
-                    hu_s, hu_r, diff, score = img_process.log_hu_moment_diff(
-                        slicer_img, real_img
-                    )
+                    hu_s, hu_r, diff, score = img_process.log_hu_moment_diff(slicer_img, real_img)
                     print(f"[Layer {CURR_LAYER}] Hu L1 score: {score:.4f}")
                 else:
                     print("⚠️ Missing slicer or real image for Hu diff.")
@@ -210,7 +221,7 @@ def monitor_roi(
 
 
 # ------------------------------
-# ROI landmarks
+# ROI milestones (in mm @ 1280×720)
 # ------------------------------
 ROI_MILESTONES: list[Tuple[float, list[Tuple[int, int]]]] = [
     (2.0,   [(373,460),(932,456),(931,450),(375,453),(371,460)]),
@@ -224,16 +235,3 @@ ROI_MILESTONES: list[Tuple[float, list[Tuple[int, int]]]] = [
     (10.0,  [(373,460),(932,456),(931,418),(375,420),(371,460)]),
 ]
 
-
-# ------------------------------
-# MAIN (one-shot test)
-# ------------------------------
-if __name__ == "__main__":
-    print("🔎 Waiting for ROI match and layer event...")
-    roi = monitor_roi(
-        poll_interval=1.0,
-        max_attempts=5,
-        out_dir=Path("out")  # processed images + slicer PNGs stored here
-    )
-
-    print("✅ Done (or out of attempts).")
