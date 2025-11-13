@@ -167,7 +167,8 @@ def log_hu_moment_diff(
     hu_r = _hu_log(real_img)
 
     diff = np.abs(hu_s - hu_r)
-    l1   = float(np.sum(diff))
+    l1   = float(np.sum(diff[:4])
 
     return hu_s, hu_r, diff, l1
+
 
