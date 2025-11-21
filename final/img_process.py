@@ -24,30 +24,34 @@ def make_mask(shape: tuple[int, int], roi_pts: Optional[Roi]) -> np.ndarray:
     return mask
 
 
-def process_roi(img_gray: np.ndarray, roi_pts: Optional[Roi], manual_thresh: Optional[int] = None) -> np.ndarray:
+def process_roi(
+    img_gray: np.ndarray,
+    roi_pts: Optional[Roi],
+    manual_thresh: Optional[int] = None
+) -> np.ndarray:
     """
-    Apply thresholding inside ROI and invert only within the ROI.
-    Returns uint8 image (0/255).
+    Apply manual thresholding inside ROI so that the *darker* print becomes white
+    and the lighter paper/background stays black. Returns uint8 image (0/255).
     """
     mask = make_mask(img_gray.shape, roi_pts)
     masked = cv.bitwise_and(img_gray, img_gray, mask=mask)
 
-    # denoise (keep it minimal to preserve edges)
-    # kernel size 1 is a no-op in OpenCV, use 3 for a tiny median smooth
+    # light denoise
     blurred = cv.medianBlur(masked, 3)
 
-    # threshold
+    # ----- MANUAL THRESHOLD -----
+    # choose a sane default if none is provided
     if manual_thresh is None:
-        _, th = cv.threshold(blurred, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU)
+        mt = 140  
     else:
         mt = int(np.clip(manual_thresh, 0, 255))
-        _, th = cv.threshold(blurred, mt, 255, cv.THRESH_BINARY)
 
-    # invert only inside ROI
-    th_inv = th.copy()
-    roi_idx = (mask == 255)
-    th_inv[roi_idx] = 255 - th[roi_idx]
-    return th_inv
+    _, th = cv.threshold(blurred, mt, 255, cv.THRESH_BINARY_INV)
+
+    th[mask == 0] = 0
+
+    return th
+
 
 
 # --------------------------
@@ -167,8 +171,9 @@ def log_hu_moment_diff(
     hu_r = _hu_log(real_img)
 
     diff = np.abs(hu_s - hu_r)
-    l1   = float(np.sum(diff[:4])
+    l1   = float(np.sum(diff[:4]))
 
     return hu_s, hu_r, diff, l1
+
 
 
