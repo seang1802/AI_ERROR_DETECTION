@@ -90,7 +90,7 @@ def find_roi_for_z(z: float, tol: float = None) -> Optional[List[Tuple[int, int]
     if z is None:
         return None
 
-    # Wider default tolerance: ±max(layer_height, 0.6 mm)
+    # Default tolerance: ±0.2 mm (one layer height for 0.2mm)
     if tol is None:
         tol = 0.2
 
@@ -116,6 +116,7 @@ def monitor_roi(
     max_attempts: Optional[int] = None,
     render_on_match: bool = True,
     out_dir: Optional[Path] = None,
+    manual_thresh: Optional[int] = None,
 ) -> Optional[List[Tuple[int, int]]]:
 
     global CURR_Z, CURR_LAYER, CURRENT_ROI
@@ -169,8 +170,19 @@ def monitor_roi(
                         if img_gray is None:
                             LAST_CAPTURE_INFO = {"path": None, "success": False}
                         else:
-                            # Apply your ROI-processing deterministically
-                            processed = img_process.process_roi(img_gray, roi_pts=roi, manual_thresh=180)
+                            # decide threshold to use
+                            if manual_thresh is None:
+                                mt = 140  # default if caller doesn't specify
+                            else:
+                                mt = int(max(0, min(255, manual_thresh)))
+
+                            print(f"[DEBUG] Using manual_thresh={mt}")
+
+                            processed = img_process.process_roi(
+                                img_gray,
+                                roi_pts=roi,
+                                manual_thresh=mt,
+                            )
                             cv.imwrite(str(proc_path), processed)
                             LAST_CAPTURE_INFO = {
                                 "path": str(proc_path),
