@@ -5,7 +5,7 @@ PRINTER_IP = "<your printer IP>"   # <-- your Qidi's IP
 url = f"http://{PRINTER_IP}:7125/printer/objects/query?toolhead=position"
 
 
-def get_z_height(timeout: float = 3.0)
+def get_z_height(timeout: float = 3.0) -> Optional[float]:
     """Return current Z height from the printer or None on error.
 
     timeout: seconds to wait for the HTTP request. Returns None if the
@@ -20,3 +20,4 @@ def get_z_height(timeout: float = 3.0)
         # Network error, timeout, bad JSON, or unexpected response shape
 
         return None
+
