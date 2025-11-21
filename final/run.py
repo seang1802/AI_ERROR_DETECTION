@@ -21,6 +21,7 @@ try:
             tol=None,            # use main.py's default tolerance
             max_attempts=1,      # return after one poll
             out_dir=OUT_DIR
+            manual_thresh=150,
         )
 
         if roi is None:
@@ -70,3 +71,4 @@ try:
 
 except KeyboardInterrupt:
     print("\n=== STOPPED BY USER ===")
+
