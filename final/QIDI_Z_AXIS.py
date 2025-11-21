@@ -1,11 +1,11 @@
 import requests
 from typing import Optional
 
-PRINTER_IP = "192.168.10.184"   # <-- your Qidi's IP
+PRINTER_IP = "<your printer IP>"   # <-- your Qidi's IP
 url = f"http://{PRINTER_IP}:7125/printer/objects/query?toolhead=position"
 
 
-def get_z_height(timeout: float = 3.0) -> Optional[float]:
+def get_z_height(timeout: float = 3.0)
     """Return current Z height from the printer or None on error.
 
     timeout: seconds to wait for the HTTP request. Returns None if the
@@ -18,4 +18,5 @@ def get_z_height(timeout: float = 3.0) -> Optional[float]:
         return data["result"]["status"]["toolhead"]["position"][2]
     except Exception:
         # Network error, timeout, bad JSON, or unexpected response shape
+
         return None
