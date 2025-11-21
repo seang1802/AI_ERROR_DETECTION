@@ -20,7 +20,7 @@ try:
             poll_interval=1.0,
             tol=None,            # use main.py's default tolerance
             max_attempts=1,      # return after one poll
-            out_dir=OUT_DIR
+            out_dir=OUT_DIR,
             manual_thresh=150,
         )
 
@@ -71,4 +71,5 @@ try:
 
 except KeyboardInterrupt:
     print("\n=== STOPPED BY USER ===")
+
 
